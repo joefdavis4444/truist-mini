@@ -5,19 +5,26 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import io
+import os
 from datetime import datetime, timezone
 
 # ── Config ──────────────────────────────────────────────
-SOURCE_TABLE  = 'loan_master'
-DB_PATH       = '/tmp/core_banking.db'
-BRONZE_BUCKET = 'truist-mini-bronze-jfd'
+SOURCE_TABLE    = 'loan_master'
+DB_S3_KEY       = 'source/core_banking.db'
+DB_LOCAL_PATH   = '/tmp/core_banking.db'
+BRONZE_BUCKET   = 'truist-mini-bronze-jfd'
 WATERMARK_TABLE = 'pipeline-watermarks'
-REGION        = 'us-east-1'
+REGION          = 'us-east-1'
 DEFAULT_WATERMARK = '2000-01-01 00:00:00'
 
 dynamodb = boto3.resource('dynamodb', region_name=REGION)
 s3       = boto3.client('s3', region_name=REGION)
 wm_table = dynamodb.Table(WATERMARK_TABLE)
+
+# ── Step 0: Download SQLite DB from S3 ──────────────────
+print(f"[0/4] Downloading source database from S3...")
+s3.download_file(BRONZE_BUCKET, DB_S3_KEY, DB_LOCAL_PATH)
+print(f"      Downloaded to {DB_LOCAL_PATH}")
 
 # ── Step 1: Read watermark ───────────────────────────────
 print(f"[1/4] Reading watermark for {SOURCE_TABLE}...")
@@ -28,7 +35,7 @@ print(f"      Last watermark: {last_watermark}")
 
 # ── Step 2: Extract from SQLite ──────────────────────────
 print(f"[2/4] Extracting rows where MODIFIED_TS > '{last_watermark}'...")
-conn = sqlite3.connect(DB_PATH)
+conn = sqlite3.connect(DB_LOCAL_PATH)
 query = f"""
     SELECT *,
            '{SOURCE_TABLE}'   AS _source_table,
