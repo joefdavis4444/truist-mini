@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: msk-consumer-loan-events
+  namespace: data-platform
+  labels:
+    app: loan-consumer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loan-consumer
+  template:
+    metadata:
+      labels:
+        app: loan-consumer
+    spec:
+      containers:
+        - name: loan-consumer
+          image: loan-consumer:v1
+          imagePullPolicy: Never
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "truist-kafka:9094"
+            - name: BRONZE_BUCKET
+              value: "truist-mini-bronze-jfd"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: aws_access_key_id
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aws-credentials
+                  key: aws_secret_access_key
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

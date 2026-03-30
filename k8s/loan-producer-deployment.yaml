@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: msk-producer-loan-events
+  namespace: data-platform
+  labels:
+    app: loan-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loan-producer
+  template:
+    metadata:
+      labels:
+        app: loan-producer
+    spec:
+      containers:
+        - name: loan-producer
+          image: loan-producer:v2
+          imagePullPolicy: Never
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "truist-kafka:9094"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"

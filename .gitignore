@@ -1,0 +1,25 @@
+# Database files
+*.db
+*.sqlite
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# AWS credentials (never commit these)
+*.pem
+*.key
+credentials
+
+# Docker
+.docker/
+
+# Temp files
+*.tmp
+*.log
+/tmp/
+
+# Kind cluster artifacts
+kubeconfig
