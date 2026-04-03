@@ -34,11 +34,7 @@ services:
 
   airflow-init:
     <<: *airflow-common
-    command: >
-      bash -c "airflow db migrate &&
-               airflow users create --username admin --password admin
-               --firstname Joe --lastname Davis --role Admin
-               --email joefdavis@icloud.com"
+    command: bash -c "airflow db migrate && airflow users create --username admin --password admin --firstname Joe --lastname Davis --role Admin --email joefdavis@icloud.com"
     restart: on-failure
 
   airflow-webserver:
