@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: loan-producer
-          image: loan-producer:v2
+          image: loan-producer:v3
           imagePullPolicy: Never
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS

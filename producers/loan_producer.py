@@ -25,6 +25,9 @@ EVENT_TYPES = [
     'STATUS_CHANGE'
 ]
 
+LOAN_TYPES = ['MORTGAGE', 'AUTO', 'PERSONAL', 'HELOC', 'STUDENT']
+STATUSES = ['CURRENT', 'DELINQUENT', 'DEFAULT', 'PAID_OFF', 'CHARGED_OFF']
+
 def generate_loan_event():
     loan_id = f"L{fake.numerify(text='#######')}"
     return {
@@ -33,6 +36,8 @@ def generate_loan_event():
         'event_type': random.choice(EVENT_TYPES),
         'amount': round(random.uniform(0, 50000), 2),
         'currency': 'USD',
+	'loan_type': random.choice(LOAN_TYPES),
+	'status': random.choice(STATUSES),
         'account_number': fake.bban(),
         'event_ts': datetime.now(timezone.utc).isoformat(),
         '_ingestion_ts': datetime.now(timezone.utc).isoformat(),

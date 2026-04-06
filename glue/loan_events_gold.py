@@ -11,6 +11,8 @@ SILVER_EVENTS_PATH  = f's3://{SILVER_BUCKET}/loan_events/'
 SILVER_MASTER_PATH  = f's3://{SILVER_BUCKET}/loan_master/'
 FACT_ACTIVITY_PATH  = f's3://{GOLD_BUCKET}/fact_loan_event_activity/'
 FACT_SUMMARY_PATH   = f's3://{GOLD_BUCKET}/fact_event_summary/'
+DIM_STATUS_PATH     = f's3://{GOLD_BUCKET}/dim_status/'
+DIM_LOAN_TYPE_PATH  = f's3://{GOLD_BUCKET}/dim_loan_type/'
 
 # ── Spark Session ────────────────────────────────────────
 spark = SparkSession.builder \
@@ -19,34 +21,37 @@ spark = SparkSession.builder \
 
 spark.sparkContext.setLogLevel('WARN')
 
-# ── Step 1: Read silver ──────────────────────────────────
-print("[1/5] Reading silver data...")
-df_events = spark.read.parquet(SILVER_EVENTS_PATH)
-df_master = spark.read.parquet(SILVER_MASTER_PATH)
+# ── Step 1: Read silver + dimensions ─────────────────────
+print("[1/5] Reading silver data and dimensions...")
+df_events    = spark.read.parquet(SILVER_EVENTS_PATH)
+df_master    = spark.read.parquet(SILVER_MASTER_PATH)
+df_dim_status    = spark.read.parquet(DIM_STATUS_PATH).drop('_dim_status_ts')
+df_dim_loan_type = spark.read.parquet(DIM_LOAN_TYPE_PATH).drop('_dim_loan_type_ts')
 print(f"      Events: {df_events.count()} rows")
 print(f"      Loan master: {df_master.count()} rows")
 
-# ── Step 2: Prepare master for join ─────────────────────
+# ── Step 2: Prepare master for join ──────────────────────
 print("[2/5] Preparing loan master for join...")
 df_master_slim = df_master.select(
-    'loan_id',
-    'loan_type',
-    'principal',
-    'interest_rate',
-    'term_months',
-    'status',
-    'branch_id',
-    'origination_dt'
-).withColumnRenamed('status',    'current_status') \
- .withColumnRenamed('loan_type', 'loan_type')
+    'loan_id', 'loan_type', 'principal',
+    'interest_rate', 'term_months', 'status',
+    'branch_id', 'origination_dt'
+).withColumnRenamed('status', 'current_status')
 
-# ── Step 3: Build fact_loan_event_activity ───────────────
+# ── Step 3: Build fact_loan_event_activity ────────────────
 print("[3/5] Building fact_loan_event_activity...")
+
+df_dim_status_join    = df_dim_status.select('status_key', 'status', 'occ_classification') \
+    .withColumnRenamed('status', 'current_status')
+df_dim_loan_type_join = df_dim_loan_type.select('loan_type_key', 'loan_type', 'category', 'collateral_type')
+
 df_activity = df_events \
-    .join(df_master_slim, on='loan_id', how='left') \
-    .withColumn('event_date',    F.to_date(F.col('event_ts'))) \
-    .withColumn('event_year',    F.year(F.col('event_ts'))) \
-    .withColumn('event_month',   F.month(F.col('event_ts'))) \
+    .join(df_master_slim,        on='loan_id',       how='left') \
+    .join(df_dim_loan_type_join,  on='loan_type',     how='left') \
+    .join(df_dim_status_join,     on='current_status', how='left') \
+    .withColumn('event_date',  F.to_date(F.col('event_ts'))) \
+    .withColumn('event_year',  F.year(F.col('event_ts'))) \
+    .withColumn('event_month', F.month(F.col('event_ts'))) \
     .withColumn('is_adverse',
         F.when(F.col('event_type').isin(
             'MISSED_PAYMENT', 'DELINQUENCY', 'STATUS_CHANGE'), F.lit(True))
@@ -59,28 +64,15 @@ df_activity = df_events \
     .withColumn('_gold_job', F.lit('truist-mini-gold-loan-events')) \
     .withColumn('_gold_ts',  F.current_timestamp()) \
     .select(
-        'loan_id',
-        'customer_id',
-        'event_type',
-        'event_ts',
-        'event_date',
-        'event_year',
-        'event_month',
-        'amount',
-        'currency',
-        'loan_type',
-        'principal',
-        'interest_rate',
-        'term_months',
-        'current_status',
-        'branch_id',
-        'origination_dt',
-        'is_adverse',
-        'payment_flag',
-        '_partition',
-        '_offset',
-        '_gold_job',
-        '_gold_ts'
+        'loan_id', 'customer_id', 'event_type',
+        'event_ts', 'event_date', 'event_year', 'event_month',
+        'amount', 'currency',
+        'loan_type_key', 'loan_type', 'category', 'collateral_type',
+        'status_key', 'current_status', 'occ_classification',
+        'principal', 'interest_rate', 'term_months',
+        'branch_id', 'origination_dt',
+        'is_adverse', 'payment_flag',
+        '_partition', '_offset', '_gold_job', '_gold_ts'
     )
 
 activity_count = df_activity.count()
@@ -91,18 +83,13 @@ df_activity.write \
     .partitionBy('event_type') \
     .parquet(FACT_ACTIVITY_PATH)
 
-print(f"      Written to gold partitioned by event_type")
-
-# ── Step 4: Build fact_event_summary (aggregated) ────────
+# ── Step 4: Build fact_event_summary (aggregated) ─────────
 print("[4/5] Building fact_event_summary...")
 df_summary = df_activity \
     .groupBy(
-        'event_type',
-        'loan_type',
-        'branch_id',
-        'event_year',
-        'event_month',
-        'is_adverse'
+        'event_type', 'loan_type_key', 'loan_type',
+        'status_key', 'branch_id',
+        'event_year', 'event_month', 'is_adverse'
     ) \
     .agg(
         F.count('*').alias('event_count'),
@@ -124,9 +111,7 @@ df_summary.write \
     .partitionBy('event_type') \
     .parquet(FACT_SUMMARY_PATH)
 
-print(f"      Written to gold partitioned by event_type")
-
-# ── Step 5: Print sample metrics ─────────────────────────
+# ── Step 5: Print sample metrics ──────────────────────────
 print("[5/5] Sample summary metrics:")
 df_summary.groupBy('event_type') \
     .agg(
